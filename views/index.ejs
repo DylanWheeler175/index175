@@ -1,0 +1,367 @@
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CIS175 Index</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.imageResize.min.js"></script>
+    <style>
+
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="categories">
+            <h2>Categories</h2>
+            <form action="/category" method="post">
+                <input type="text" name="categoryName" placeholder="New Category" required>
+                <button type="submit">Add Category</button>
+            </form>
+            <label for="filterCategory">Filter Categories:</label>
+            <input type="text" id="filterCategory" oninput="filterCategories(this.value)"
+                placeholder="Enter category name">
+            <ul id="categoryList">
+                <% categories.sort((a, b)=> a.name.localeCompare(b.name)).forEach(category => { %>
+                    <li>
+                        <details>
+                            <summary>
+                                <%= category.name %>
+                            </summary>
+                            <div class="dropdown-container">
+                                <button class="dropdown-button" onclick="toggleNewPostForm('<%= category._id %>')">New
+                                    Post</button>
+                                <button class="dropdown-button"
+                                    onclick="toggleEditCategoryForm('<%= category._id %>', '<%= category.name %>')">Edit
+                                    Category</button>
+                                <div id="editCategoryContainer_<%= category._id %>" class="dropdown-content"
+                                    style="display: none;">
+                                    <form id="editCategoryForm_<%= category._id %>"
+                                        action="/editCategory/<%= category._id %>" method="post">
+                                        <input type="text" name="editedCategoryName" placeholder="Edited Category Name"
+                                            required>
+                                        <button type="submit">Save</button>
+                                    </form>
+                                    <button class="delete-category-button"
+                                        onclick="deleteCategory('<%= category._id %>')">Delete Category</button>
+                                </div>
+                                <form id="newPostForm_<%= category._id %>" action="/post/<%= category._id %>"
+                                    method="post" style="display: none;">
+                                    <input type="text" name="title" placeholder="Post Title" required>
+                                    <!-- Use a div as the container for the Quill editor -->
+                                    <div class="quill-editor" data-category-id="<%= category._id %>"></div>
+                                    <!-- Add a hidden input for storing HTML content -->
+                                    <input type="hidden" name="content" class="hidden-content">
+                                    <button type="submit">Add Post</button>
+                                </form>
+                            </div>
+                            <h3>Posts</h3>
+                            <ul>
+                                <% category.posts.sort((a, b)=> a.title.localeCompare(b.title)).forEach(post => { %>
+                                    <li>
+                                        <details>
+                                            <summary>
+                                                <%= post.title %>
+                                            </summary>
+                                            <a href="/post/<%= category._id %>/<%= post._id %>"
+                                                class="post-button">View</a>
+                                            <a href="#" class="delete-button"
+                                                onclick="deletePost('<%= category._id %>', '<%= post._id %>')">Delete</a>
+                                        </details>
+                                    </li>
+                                    <% }) %>
+                            </ul>
+                        </details>
+                    </li>
+                    <% }) %>
+            </ul>
+        </div>
+        <div class="posts">
+            <h2>Posts</h2>
+            <div class="post-content">
+                <% if (selectedPost) { %>
+                    <h3>
+                        <%= selectedPost.title %>
+                    </h3>
+                    <!-- Use a div as the container for the Quill content -->
+                    <div id="selectedPostContent" class="quill-editor" data-category-id="<%= selectedPost.categoryId %>" data-post-id="<%= selectedPost._id %>">
+                        <%- selectedPost.content %>
+                    </div>
+                    <button onclick="saveEditedContent()">Save</button>
+                <% } else { %>
+                    <p>Select a post to view its content.</p>
+                <% } %>
+            </div>
+        </div>
+    </div>
+
+    <script>
+
+
+        function deletePost(categoryId, postId) {
+            if (confirm('Are you sure you want to delete this post?')) {
+                window.location.href = `/deletePost/${categoryId}/${postId}`;
+            }
+        }
+
+        function deleteCategory(categoryId) {
+            if (confirm('Are you sure you want to delete this category?')) {
+                window.location.href = `/deleteCategory/${categoryId}`;
+            }
+        }
+        //Im sure there is redundant code here
+        //EDIT: Im 100% confident there is redundant code here, in fact the search algorithm runs twice per character as the code is copy and pasted to run twice, 
+        //I did this because otherwise NMCWMP will only display every other character
+        function filterCategories(searchTerm) {
+            //log searchTerm
+            console.log(`search term is ${searchTerm}`)
+            
+            //filter to return only categories that match the search term, and categories that include a post that matches the search term.
+            // If a category does not match the search term, but contains a post that does, the category should still be displayed but only with the post(s) that match the search term. 
+            const categories = document.querySelectorAll('.categories > ul > li');
+            let matchingPosts = [];
+            let matchingCategories = [];
+            let nonMatchingCategoriesWithMatchingPosts = []; //NMCWMP
+            let nonMatchingCategories = [];
+            let nonMatchingPosts = [];  
+
+            //for each category in categories, add matching ones to matchingCategories and non-matching ones to nonMatchingCategories
+            categories.forEach(category => { 
+                const categoryName = category.querySelector('summary').innerText;
+                //if category name includes searchterm
+                if (categoryName.toLowerCase().includes(searchTerm.toLowerCase())) {
+                    //add category to matchingCategories
+                    matchingCategories.push(category);
+                } else {
+                    //add category to nonMatchingCategories
+                    nonMatchingCategories.push(category);
+                }
+            });
+            //for each category in nonMatchingCategories, check if it contains a post that matches the search term. If it does, add it to nonMatchingCategoriesWithMatchingPosts and remove it from nonMatchingCategories
+            nonMatchingCategories.forEach(category => {
+                const posts = category.querySelectorAll('details > ul > li');
+                posts.forEach(post => {
+                    const postTitle = post.querySelector('summary').innerText;
+                    //if any post contains searchterm
+                    if (postTitle.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        //add its parent category to nonMatchingCategoriesWithMatchingPosts
+                        nonMatchingCategoriesWithMatchingPosts.push(category);
+                    }
+                });
+            });
+            //for each post in each category in nonMatchingCategoriesWithMatchingPosts, check if it matches the search term. If it does, add it to matchingPosts.
+            nonMatchingCategoriesWithMatchingPosts.forEach(category => {
+                const posts = category.querySelectorAll('details > ul > li');
+                posts.forEach(post => {
+                    const postTitle = post.querySelector('summary').innerText;
+                    if (postTitle.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        matchingPosts.push(post);
+                    }
+                });
+            });
+
+            //display all matching categories and remove all non-matching categories
+            //block means to display, none means to not display
+            matchingCategories.forEach(category => {
+                category.style.display = 'block';
+            });
+            nonMatchingCategories.forEach(category => {
+                //check if category is in nonMatchingCategoriesWithMatchingPosts
+                if (nonMatchingCategoriesWithMatchingPosts.includes(category)) {
+                    //if it is, display it
+                    category.style.display = 'block';
+                } else {
+                    //if it is not, hide it
+                    category.style.display = 'none';
+                }
+            });
+
+            //display all nonmatchingcategorieswithmatchingposts and remove all non-matching posts
+            nonMatchingCategoriesWithMatchingPosts.forEach(category => {
+                category.style.display = 'block';
+                //for each post in each category in nonMatchingCategoriesWithMatchingPosts, check if it is in matchingPosts. If it is, display it. If it is not, hide it.
+                const posts = category.querySelectorAll('details > ul > li');
+                posts.forEach(post => {
+                    if (matchingPosts.includes(post)) {
+                        post.style.display = 'block';
+                    } else {
+                        post.style.display = 'none';
+                    }
+                });
+            });
+            //for each category in categories, add matching ones to matchingCategories and non-matching ones to nonMatchingCategories
+            categories.forEach(category => {
+                const categoryName = category.querySelector('summary').innerText;
+                //if category name includes searchterm
+                if (categoryName.toLowerCase().includes(searchTerm.toLowerCase())) {
+                    //add category to matchingCategories
+                    matchingCategories.push(category);
+                } else {
+                    //add category to nonMatchingCategories
+                    nonMatchingCategories.push(category);
+                }
+            });
+            //for each category in nonMatchingCategories, check if it contains a post that matches the search term. If it does, add it to nonMatchingCategoriesWithMatchingPosts and remove it from nonMatchingCategories
+            nonMatchingCategories.forEach(category => {
+                const posts = category.querySelectorAll('details > ul > li');
+                posts.forEach(post => {
+                    const postTitle = post.querySelector('summary').innerText;
+                    //if any post contains searchterm
+                    if (postTitle.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        //add its parent category to nonMatchingCategoriesWithMatchingPosts
+                        nonMatchingCategoriesWithMatchingPosts.push(category);
+                    }
+                });
+            });
+            //for each post in each category in nonMatchingCategoriesWithMatchingPosts, check if it matches the search term. If it does, add it to matchingPosts.
+            nonMatchingCategoriesWithMatchingPosts.forEach(category => {
+                const posts = category.querySelectorAll('details > ul > li');
+                posts.forEach(post => {
+                    const postTitle = post.querySelector('summary').innerText;
+                    if (postTitle.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        matchingPosts.push(post);
+                    }
+                });
+            });
+
+            //display all matching categories and remove all non-matching categories
+            //block means to display, none means to not display
+            matchingCategories.forEach(category => {
+                category.style.display = 'block';
+            });
+            nonMatchingCategories.forEach(category => {
+                //check if category is in nonMatchingCategoriesWithMatchingPosts
+                if (nonMatchingCategoriesWithMatchingPosts.includes(category)) {
+                    //if it is, display it
+                    category.style.display = 'block';
+                } else {
+                    //if it is not, hide it
+                    category.style.display = 'none';
+                }
+            });
+
+            //display all nonmatchingcategorieswithmatchingposts and remove all non-matching posts
+            nonMatchingCategoriesWithMatchingPosts.forEach(category => {
+                category.style.display = 'block';
+                //for each post in each category in nonMatchingCategoriesWithMatchingPosts, check if it is in matchingPosts. If it is, display it. If it is not, hide it.
+                const posts = category.querySelectorAll('details > ul > li');
+                posts.forEach(post => {
+                    if (matchingPosts.includes(post)) {
+                        post.style.display = 'block';
+                    } else {
+                        post.style.display = 'none';
+                    }
+                });
+            });
+        }
+        // Basic sanitization function
+        function sanitizeContent(content) {
+            // Replace line breaks with an empty string
+            const sanitizedContent = content.replace(/\n/g, '');
+            return sanitizedContent;
+        }
+
+        function toggleNewPostForm(categoryId) {
+            const newPostForm = document.getElementById(`newPostForm_${categoryId}`);
+            newPostForm.style.display = newPostForm.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function toggleEditCategoryForm(categoryId, currentCategoryName) {
+            const editCategoryContainer = document.getElementById(`editCategoryContainer_${categoryId}`);
+            const editCategoryForm = document.getElementById(`editCategoryForm_${categoryId}`);
+            const editedCategoryNameInput = editCategoryForm.querySelector('[name="editedCategoryName"]');
+            editedCategoryNameInput.value = currentCategoryName;
+
+            // Toggle the display of the edit category form and delete category button
+            if (editCategoryContainer.style.display === 'none') {
+                editCategoryContainer.style.display = 'block';
+            } else {
+                editCategoryContainer.style.display = 'none';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+         
+    
+            function initializeFormListener(categoryId, quill) {
+                const form = document.querySelector(`form[action="/post/${categoryId}"]`);
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    // Get HTML content from Quill
+                    const hiddenContent = form.querySelector('.hidden-content');
+                    hiddenContent.value = quill.root.innerHTML; // Use root.innerHTML to get HTML content
+
+                    this.submit();
+                });
+            }
+            
+            document.querySelectorAll('.quill-editor').forEach(editor => {
+                const categoryId = editor.dataset.categoryId;
+                const quill = new Quill(editor, { theme: 'snow' });
+
+                // Initialize form listener
+                const form = document.querySelector(`form[action="/post/${categoryId}"]`);
+                form.addEventListener('submit', function (e) {
+                    // Get HTML content from Quill
+                    const hiddenContent = form.querySelector('.hidden-content');
+                    hiddenContent.value = quill.root.innerHTML;
+                });
+            });
+
+            var quillViewerElement = document.getElementById('selectedPostContent');
+
+            quillViewerElement.addEventListener('click', function () {
+    // Enable editing when clicked
+    quillEditor.enable();
+});
+
+// Save changes when the editor loses focus
+quillEditor.on('blur', function () {
+    // Disable editing and save content
+    const editedContent = quillEditor.root.innerHTML;
+    saveEditedContent(editedContent); // Pass the edited content to the function
+});
+        });
+
+    function saveEditedContent(editedContent) {
+        const quillEditor = document.querySelector('.quill-editor .ql-editor'); // Adjust the selector accordingly
+
+    const categoryId = quillEditor.dataset.categoryId;
+    const postId = quillEditor.dataset.postId;
+
+    // Send an AJAX request to the server to update the post content
+    fetch(`/editPost/${categoryId}/${postId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            editedContent: editedContent,
+        }),
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Handle the response from the server, if needed
+        console.log('Post content updated successfully:', data);
+    })
+    .catch(error => {
+        console.error('Error updating post content:', error);
+    });
+    } 
+        
+
+    </script>
+
+</body>
+
+</html>
